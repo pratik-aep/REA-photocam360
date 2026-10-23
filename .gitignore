@@ -39,3 +39,8 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# stitching server
+server/.venv/
+__pycache__/
+.pytest_cache/
