@@ -167,3 +167,11 @@ def test_footprint_wraps_across_the_seam(pano):
     out = stitch([Shot(img, focal, 180, 0)], 1024)
     assert out[256, 0].sum() > 0 and out[256, 1023].sum() > 0
     assert out[256, 512].sum() == 0
+
+
+def test_implausible_exif_focal_length_is_ignored():
+    img = np.zeros((PHONE_H, PHONE_W, 3), np.uint8)
+    _, default = decode(to_jpeg(img))
+    for bogus in (1, 2, 1000):  # some phones write nonsense; it would make the stitch wildly wrong
+        _, focal = decode(to_jpeg(img, f35=bogus))
+        assert focal == pytest.approx(default), bogus

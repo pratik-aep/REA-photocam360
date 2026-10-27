@@ -14,6 +14,7 @@ import numpy as np
 from PIL import Image, ImageOps
 
 DEFAULT_F35 = 26.0  # typical phone main camera, 35mm-equivalent focal length
+MIN_F35, MAX_F35 = 5.0, 300.0
 DIAG_35MM = math.hypot(36.0, 24.0)
 
 
@@ -34,6 +35,8 @@ def decode(data: bytes, f35: float | None = None, px_per_rad: float | None = Non
     """
     with Image.open(io.BytesIO(data)) as im:
         exif_f35 = im.getexif().get_ifd(0x8769).get(0xA405)
+        if not isinstance(exif_f35, (int, float)) or not MIN_F35 <= exif_f35 <= MAX_F35:
+            exif_f35 = None  # 0 means "unknown"; some phones write nonsense values
         f35 = f35 or (float(exif_f35) if exif_f35 else DEFAULT_F35)
         if px_per_rad:
             scale = px_per_rad / (math.hypot(*im.size) * f35 / DIAG_35MM)

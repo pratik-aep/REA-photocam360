@@ -59,8 +59,13 @@ npx expo run:android             # needs the Android SDK
 ```
 
 On the home screen, enter your server's address (for example `192.168.1.10:8080`) and tap
-**Save & test**. The phone and the server must be on the same network. You can also set
-the default at build time with `EXPO_PUBLIC_STITCH_URL`.
+**Save & test**. If you enter only an IP or host name, port 8080 is added. The phone and the
+server must be on the same network. You can also set the default at build time with
+`EXPO_PUBLIC_STITCH_URL`.
+
+The app shows upload progress. If the upload or stitching fails, or you cancel, it keeps
+the photos and offers **Retry upload**. Temporary photos and panoramas are deleted from the
+app's cache once they're no longer needed.
 
 ### Build a release APK locally
 
@@ -76,10 +81,14 @@ Cleartext HTTP is enabled (`expo-build-properties`) so the app can reach a LAN s
 ## Tests
 
 ```bash
-npm test                         # app logic: orientation math, capture plan, server URLs
+npm test                         # app logic (Node 22.3+; Expo native modules are faked)
 npm run typecheck
 cd server && .venv/bin/python -m pytest -q
 ```
+
+The app tests cover the orientation and projection math, the capture plan, server-address
+handling, the screen-state logic (retry and file cleanup), the upload (progress, timeout,
+cancel, network loss) and photo preparation.
 
 The server tests render synthetic phone photos from a known panorama, then check several
 things:
@@ -87,9 +96,10 @@ things:
 - stitching reconstructs it
 - the capture plan leaves no holes
 - refinement fixes up to 6° of sensor error
-- the HTTP API rejects bad input
-- the WebGL viewer, rendered in headless Chrome, matches the expected view (skipped if Chrome
-  isn't installed)
+- the HTTP API rejects bad input with a plain-text 4xx, never an HTML 500
+- the app's on-screen dots match the stitcher's geometry
+- the WebGL viewer, rendered in headless Chrome, matches the expected view and recovers
+  from a lost WebGL context (skipped if Chrome isn't installed)
 
 ## Status
 

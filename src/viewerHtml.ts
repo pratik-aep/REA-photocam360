@@ -16,6 +16,10 @@ var gl=c.getContext('webgl')||c.getContext('experimental-webgl');
 if(!gl){fail('WebGL is not available');return}
 function sh(type,src){var s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);
 if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(s));return s}
+var view={yaw:0,pitch:0,fov:75},ready=false,queued=false,loaded=null,U={};
+// Builds every GL resource for the current context. Runs on load and again after a context
+// loss (Android drops a backgrounded WebView's GL context), when all of them are gone.
+function setup(){
 var prog=gl.createProgram();
 gl.attachShader(prog,sh(gl.VERTEX_SHADER,'attribute vec2 p;varying vec2 v;void main(){v=p;gl_Position=vec4(p,0.,1.);}'));
 gl.attachShader(prog,sh(gl.FRAGMENT_SHADER,[
@@ -29,8 +33,18 @@ gl.linkProgram(prog);gl.useProgram(prog);
 var buf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buf);
 gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
 var loc=gl.getAttribLocation(prog,'p');gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
-var U={};['yaw','pitch','tanHalf','aspect'].forEach(function(n){U[n]=gl.getUniformLocation(prog,n)});
-var view={yaw:0,pitch:0,fov:75},ready=false,queued=false;
+['yaw','pitch','tanHalf','aspect'].forEach(function(n){U[n]=gl.getUniformLocation(prog,n)});
+var src=loaded,max=gl.getParameter(gl.MAX_TEXTURE_SIZE);
+if(src.width>max||src.height>max){var s=Math.min(max/src.width,max/src.height),cv=document.createElement('canvas');
+cv.width=Math.floor(src.width*s);cv.height=Math.floor(src.height*s);cv.getContext('2d').drawImage(src,0,0,cv.width,cv.height);src=cv}
+var pot=function(n){return(n&(n-1))===0};var wrap=pot(src.width)&&pot(src.height)?gl.REPEAT:gl.CLAMP_TO_EDGE;
+var tex=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,tex);
+gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,wrap);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+gl.texImage2D(gl.TEXTURE_2D,0,gl.RGB,gl.RGB,gl.UNSIGNED_BYTE,src);
+ready=true}
+c.addEventListener('webglcontextlost',function(e){e.preventDefault();ready=false});
+c.addEventListener('webglcontextrestored',function(){if(loaded){try{setup();redraw()}catch(e){fail('Could not restore the viewer')}}});
 function draw(){queued=false;if(!ready)return;var dpr=Math.min(window.devicePixelRatio||1,2);
 var w=Math.round(c.clientWidth*dpr),h=Math.round(c.clientHeight*dpr);if(c.width!==w||c.height!==h){c.width=w;c.height=h}
 gl.viewport(0,0,w,h);gl.uniform1f(U.yaw,view.yaw);gl.uniform1f(U.pitch,view.pitch);
@@ -38,15 +52,9 @@ gl.uniform1f(U.tanHalf,Math.tan(view.fov*Math.PI/360));gl.uniform1f(U.aspect,w/h
 function redraw(){if(!queued){queued=true;requestAnimationFrame(draw)}}
 window.__view=view;window.__redraw=redraw;
 var img=new Image();
-img.onload=function(){var src=img,max=gl.getParameter(gl.MAX_TEXTURE_SIZE);
-if(img.width>max||img.height>max){var s=Math.min(max/img.width,max/img.height),cv=document.createElement('canvas');
-cv.width=Math.floor(img.width*s);cv.height=Math.floor(img.height*s);cv.getContext('2d').drawImage(img,0,0,cv.width,cv.height);src=cv}
-var pot=function(n){return(n&(n-1))===0};var wrap=pot(src.width)&&pot(src.height)?gl.REPEAT:gl.CLAMP_TO_EDGE;
-var tex=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,tex);
-gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,wrap);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
-gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
-gl.texImage2D(gl.TEXTURE_2D,0,gl.RGB,gl.RGB,gl.UNSIGNED_BYTE,src);
-ready=true;msg.style.display='none';redraw();post({type:'loaded',width:img.width,height:img.height})};
+img.onload=function(){loaded=img;
+try{setup()}catch(e){fail('Could not start the viewer');return}
+msg.style.display='none';redraw();post({type:'loaded',width:img.width,height:img.height})};
 img.onerror=function(){fail('Could not load the panorama')};
 img.src=${JSON.stringify(imageSrc).replace(/</g, '\\u003c')};
 var pts={},last=null;

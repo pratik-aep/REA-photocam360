@@ -1,4 +1,5 @@
 import json
+import logging
 import math
 import os
 import re
@@ -8,7 +9,8 @@ from pathlib import Path
 
 import cv2
 from flask import Flask, Response, abort, request, send_from_directory
-from PIL import UnidentifiedImageError
+from PIL import Image, UnidentifiedImageError
+from werkzeug.exceptions import RequestEntityTooLarge
 
 from refine import refine
 from stitcher import Shot, decode, stitch
@@ -30,6 +32,18 @@ class BadRequest(Exception):
 @app.errorhandler(BadRequest)
 def bad_request(e):
     return Response(str(e), status=400, mimetype="text/plain")
+
+
+@app.errorhandler(RequestEntityTooLarge)
+def too_large(e):
+    mb = app.config["MAX_CONTENT_LENGTH"] // (1024 * 1024)
+    return Response(f"upload is larger than {mb} MB", status=413, mimetype="text/plain")
+
+
+@app.errorhandler(500)
+def internal_error(e):
+    # The app shows this text to the user, so keep it plain rather than Flask's HTML page.
+    return Response("stitching failed on the server; please try again", status=500, mimetype="text/plain")
 
 
 def _number(item, key, default=None):
@@ -68,9 +82,14 @@ def parse_request():
             raise BadRequest("meta.f35 must be within [5, 300]")
         try:
             image, focal = decode(f.read(), f35, width / (2 * math.pi))
+        except Image.DecompressionBombError:
+            raise BadRequest(f"photo {f.filename!r} is too large")
         except (UnidentifiedImageError, OSError):
             raise BadRequest(f"photo {f.filename!r} is not a readable image")
-        shots.append(Shot(image, focal, _number(m, "yaw"), pitch, _number(m, "roll", 0.0)))
+        # Wrap angles: any finite value is a valid direction, but huge ones break index arithmetic.
+        yaw = _number(m, "yaw") % 360.0
+        roll = (_number(m, "roll", 0.0) + 180.0) % 360.0 - 180.0
+        shots.append(Shot(image, focal, yaw, pitch, roll))
     return shots, width
 
 
@@ -89,7 +108,11 @@ def _prune(results: Path):
 def stitch_route():
     shots, width = parse_request()
     if request.args.get("refine", "1") != "0":
-        shots = refine(shots)
+        try:
+            shots = refine(shots)
+        except Exception:
+            # Refinement only improves the sensor poses; a failure there shouldn't lose the panorama.
+            logging.exception("pose refinement failed; stitching with sensor poses")
     ok, buf = cv2.imencode(".jpg", stitch(shots, width), [cv2.IMWRITE_JPEG_QUALITY, 90])
     results = Path(app.config["RESULTS_DIR"])
     results.mkdir(parents=True, exist_ok=True)

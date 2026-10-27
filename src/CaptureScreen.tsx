@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Easing, Linking, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { CAPTURE_PLAN, aimedTarget, nearest } from './capturePlan';
+import { deleteFiles } from './files';
 import type { Pose } from './orientation';
 import { preparePhoto } from './photoPrep';
 import { DEFAULT_F35, edgeArrow, focalForBox, previewBox, project } from './projection';
@@ -47,7 +48,9 @@ export default function CaptureScreen({ onDone }: { onDone: (shots: Shot[]) => v
   const latestPose = useRef<Pose | null>(null);
   const aimedRef = useRef<string | null>(null);
   const busyRef = useRef(false);
-  const dots = useRef(CAPTURE_PLAN.map(() => ({ xy: new Animated.ValueXY({ x: -DOT, y: -DOT }), opacity: new Animated.Value(0) }))).current;
+  const mounted = useRef(true);
+  const handedOff = useRef(false);
+  const dots =useRef(CAPTURE_PLAN.map(() => ({ xy: new Animated.ValueXY({ x: -DOT, y: -DOT }), opacity: new Animated.Value(0) }))).current;
   const arrow = useRef({ xy: new Animated.ValueXY(), angle: new Animated.Value(0), opacity: new Animated.Value(0) }).current;
   const progress = useRef(new Animated.Value(0)).current;
 
@@ -93,6 +96,7 @@ export default function CaptureScreen({ onDone }: { onDone: (shots: Shot[]) => v
     try {
       const photo = await camera.current?.takePictureAsync({ quality: 0.92, skipProcessing: true, exif: true });
       if (!photo) return;
+      if (!mounted.current) return deleteFiles([photo.uri]); // capture was abandoned while the shutter fired
       const exif = photo.exif as Exif;
       const lens = exifNumber(exif, 'FocalLengthIn35mmFilm', 'FocalLenIn35mmFilm');
       const shotF35 = lens && lens >= 10 && lens <= 200 ? lens : undefined;
@@ -123,12 +127,25 @@ export default function CaptureScreen({ onDone }: { onDone: (shots: Shot[]) => v
     if (count !== CAPTURE_PLAN.length) return;
     let cancelled = false;
     Promise.all(prepared.current).then((uris) => {
-      if (!cancelled) onDone(shots.current.map((s, i) => ({ ...s, uri: uris[i] })));
+      if (cancelled) return;
+      handedOff.current = true;
+      onDone(shots.current.map((s, i) => ({ ...s, uri: uris[i] })));
     });
     return () => {
       cancelled = true;
     };
   }, [count, onDone]);
+
+  // Leaving before the photos were handed off: delete everything captured so far.
+  useEffect(
+    () => () => {
+      mounted.current = false;
+      if (handedOff.current) return;
+      const originals = shots.current.map((s) => s.uri);
+      Promise.all(prepared.current).then((uris) => deleteFiles(new Set([...originals, ...uris])));
+    },
+    [],
+  );
 
   if (!permission) return <View style={styles.fill} />;
   if (!permission.granted) {
