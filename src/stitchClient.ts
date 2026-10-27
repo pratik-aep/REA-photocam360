@@ -37,7 +37,7 @@ export async function stitch(serverUrl: string, shots: Shot[], signal?: AbortSig
   shots.forEach((s, i) => {
     form.append('photos', { uri: s.uri, name: `img_${i}.jpg`, type: 'image/jpeg' } as unknown as Blob);
   });
-  form.append('meta', JSON.stringify(shots.map(({ yaw, pitch, roll }) => ({ yaw, pitch, roll }))));
+  form.append('meta', JSON.stringify(shots.map(({ yaw, pitch, roll, f35 }) => ({ yaw, pitch, roll, ...(f35 ? { f35 } : {}) }))));
 
   const res = await fetchWithTimeout(`${serverUrl}/stitch`, { method: 'POST', body: form }, STITCH_TIMEOUT_MS, signal);
   if (!res.ok) throw new Error(`Stitching failed (${res.status}): ${(await res.text()).slice(0, 200)}`);

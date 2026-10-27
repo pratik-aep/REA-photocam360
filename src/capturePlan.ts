@@ -1,37 +1,47 @@
-export type Target = { id: string; row: string; yaw: number; pitch: number };
+import { type Vec3, direction, dot } from './orientation.ts';
 
-const ring = (row: string, pitch: number, count: number): Target[] =>
-  Array.from({ length: count }, (_, i) => ({
-    id: `${row}-${i}`,
-    row,
-    yaw: (360 / count) * i,
-    pitch,
-  }));
+export type Target = { id: string; yaw: number; pitch: number; dir: Vec3 };
+
+const target = (id: string, yaw: number, pitch: number): Target => ({ id, yaw, pitch, dir: direction(yaw, pitch) });
+
+const ring = (row: string, pitch: number, count: number, offset = 0): Target[] =>
+  Array.from({ length: count }, (_, i) => target(`${row}-${i}`, (offset + (360 / count) * i) % 360, pitch));
 
 export const CAPTURE_PLAN: Target[] = [
   ...ring('middle', 0, 8),
   // Sized so a portrait phone with up to a 30mm-equivalent lens leaves no gaps (server/tests).
-  ...ring('ceiling', 42, 7),
-  ...ring('bottom', -42, 7),
-  { id: 'zenith', row: 'ceiling', yaw: 0, pitch: 90 },
-  { id: 'nadir', row: 'floor', yaw: 0, pitch: -90 },
+  ...ring('up', 42, 7),
+  ...ring('down', -42, 7),
+  target('zenith', 0, 90),
+  target('nadir', 0, -90),
 ];
 
-/** Signed shortest rotation from `from` to `to`, in (-180, 180]. Positive means turn right. */
-export const yawDelta = (to: number, from: number) => {
-  const d = (((to - from) % 360) + 540) % 360 - 180;
-  return d === -180 ? 180 : d;
-};
+/** Angle in degrees between where the camera points and a target. */
+export const angleTo = (t: Target, forward: Vec3) => (Math.acos(Math.max(-1, Math.min(1, dot(t.dir, forward)))) * 180) / Math.PI;
 
-export const isPolar = (t: Target) => Math.abs(t.pitch) === 90;
+export const ENTER_DEG = 4;
+export const EXIT_DEG = 7;
 
-/** Angular distance used for aiming; polar targets ignore yaw, which is meaningless there. */
-export const aimError = (t: Target, yaw: number, pitch: number) =>
-  isPolar(t) ? Math.abs(pitch - t.pitch) : Math.max(Math.abs(pitch - t.pitch), Math.abs(yawDelta(t.yaw, yaw)));
+/**
+ * Which remaining target (if any) the camera is aimed at. Any order is allowed. Hysteresis keeps
+ * the current target while hand tremor stays within EXIT_DEG, so the hold timer doesn't restart.
+ */
+export function aimedTarget(remaining: Target[], forward: Vec3, currentId: string | null): Target | null {
+  const current = currentId ? remaining.find((t) => t.id === currentId) : undefined;
+  if (current && angleTo(current, forward) <= EXIT_DEG) return current;
+  const best = nearest(remaining, forward);
+  return best && angleTo(best, forward) <= ENTER_DEG ? best : null;
+}
 
-export const ENTER_TOL = 5;
-export const EXIT_TOL = 8;
-
-/** Hysteresis so hand tremor near the edge doesn't keep restarting the hold timer. */
-export const onTarget = (t: Target, yaw: number, pitch: number, wasOnTarget: boolean) =>
-  aimError(t, yaw, pitch) <= (wasOnTarget ? EXIT_TOL : ENTER_TOL);
+export function nearest(remaining: Target[], forward: Vec3): Target | null {
+  let best: Target | null = null;
+  let bestDot = -Infinity;
+  for (const t of remaining) {
+    const d = dot(t.dir, forward);
+    if (d > bestDot) {
+      bestDot = d;
+      best = t;
+    }
+  }
+  return best;
+}

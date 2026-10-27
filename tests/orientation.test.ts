@@ -87,3 +87,28 @@ test('wrap360', () => {
   assert.equal(wrap360(370), 10);
   assert.equal(wrap360(0), 0);
 });
+
+test('axesFromPose matches the reference axes and round-trips through poseFromAxes', async () => {
+  const { axesFromPose, poseFromAxes } = await import('../src/orientation.ts');
+  for (const [yaw, pitch, roll] of [[0, 1, 0.5], [77, 42, -6], [300, -42, 12], [10, 89, 3], [200, -89, -4]]) {
+    const got = axesFromPose({ yaw, pitch, roll });
+    const want = axes(yaw, pitch, roll);
+    close(got.f, want.f);
+    close(got.r, want.r);
+    close(got.u, want.u);
+    const back = axes(...(Object.values(poseFromAxes(got)) as [number, number, number]));
+    close(back.f, want.f);
+    close(back.r, want.r);
+  }
+});
+
+test('smoothAxes moves part way, stays orthonormal, and handles yaw wrap', async () => {
+  const { axesFromPose, smoothAxes, dot } = await import('../src/orientation.ts');
+  const a = axesFromPose({ yaw: 355, pitch: 0, roll: 0 });
+  const b = axesFromPose({ yaw: 5, pitch: 0, roll: 0 });
+  const s = smoothAxes(a, b, 0.5);
+  close(s.f, axesFromPose({ yaw: 0, pitch: 0, roll: 0 }).f, 1e-9);
+  for (const v of [s.f, s.r, s.u]) assert.ok(Math.abs(dot(v, v) - 1) < 1e-12);
+  assert.ok(Math.abs(dot(s.f, s.r)) < 1e-12 && Math.abs(dot(s.f, s.u)) < 1e-12);
+  assert.equal(smoothAxes(null, b, 0.5), b);
+});

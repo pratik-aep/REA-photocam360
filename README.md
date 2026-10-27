@@ -10,10 +10,16 @@ which you then view in the app.
 
 ## How it works
 
-1. **Capture** (`src/CaptureScreen.tsx`): a dot shows the next target. Holding the ring on it
-   for 0.7 s takes the shot. The plan (`src/capturePlan.ts`) is 8 shots at the horizon,
+1. **Capture** (`src/CaptureScreen.tsx`): all 24 targets are drawn as dots fixed in the scene,
+   so they slide across the preview as you turn, like real objects. Put the centre circle on
+   any dot, in any order, and hold for 0.6 s to take the shot. An arrow at the screen edge
+   points to the nearest remaining dot. `src/projection.ts` maps world directions to preview
+   pixels with the same pinhole model the server stitches with, and calibrates the lens from
+   the first photo's EXIF. Sensor readings are smoothed, and drawing bypasses React so it
+   stays at the sensor rate. The plan (`src/capturePlan.ts`) is 8 shots at the horizon,
    7 at +42°, 7 at −42°, plus straight up and straight down. That covers the whole sphere for
-   portrait phones with lenses up to 30 mm-equivalent.
+   portrait phones with lenses up to 30 mm-equivalent. Each photo is shrunk to 1600 px
+   (`src/photoPrep.ts`) in the background while you aim at the next one, so uploads are small.
 2. **Pose** (`src/orientation.ts`): the camera's yaw, pitch and roll come from the full
    rotation that Expo `DeviceMotion` reports. Its `beta` angle alone is clamped to ±90°, so it
    can't express looking up. Each shot is sent with the pose measured at the shutter.
